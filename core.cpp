@@ -75,7 +75,6 @@ idx_t MyPlc::addPort(flag_t io, idx_t imod, saddr_t subaddr, flag_t ptype=0, fla
 uint8_t MyPlc::addRule(flag_t cc, idx_t pin, flag_t vin, idx_t pout, flag_t vout) 
   {
 
-    
   };
   
 
@@ -197,20 +196,22 @@ uint8_t MyPlc::Write()     // Update out-ports
 
 
 
+// ---------------------------------------------------------------------------------------------
+//                                                                                   C O N F I G
+// ---------------------------------------------------------------------------------------------
 
 
-
-
-
-  void MyPlc::clearMemory() 
-  {
+void MyPlc::clearMemory() 
+{
      delete[] _MO;
      delete[] _PI;
      delete[] _PO;
      delete[] _RL;   
-  }
+}
+
   
-  void MyPlc::initMemory(idx_t maxmod,idx_t maxin,idx_t maxout,idx_t maxrls){ 
+void MyPlc::initMemory(idx_t maxmod,idx_t maxin,idx_t maxout,idx_t maxrls)
+{ 
        _MO = new mnode_t[maxmod];
        _PI = new port_t[maxin];
        _PO = new port_t[maxout];
@@ -219,13 +220,175 @@ uint8_t MyPlc::Write()     // Update out-ports
        nPI=0;
        nPO=0;
        nRL=0; 
-  } 
+} 
 
 
 
+bool MyPlc::checkEprom(){  // Update PLC indexes to max
+  // Check first 2 bytes marker  
+  uint16_t ep = EEPROM_OFFSET;
+  uint8_t chkA = EEPROM.read(ep++);  //  x 3 Bytes
+  uint8_t chkB = EEPROM.read(ep++);  //  x 2 Bytes 
+  if ( ((chkA>>4)&&chkB) && ((chkB<<4)&&chkA  )) {  // Assume valid config in eeprom
+   return (true); // force update 
+  };
+ return (false);
+};
 
 
 
+bool MyPlc::saveToEprom(){  
+
+ uint16_t ep = EEPROM_OFFSET;
+ uint8_t i;
+ uint16_t tmp;
+
+   // EEPROM.begin(EEPROM_SPACE);
+   // EEPROM.length()
+ if (true ) {       // verify memory size
+   
+   EEPROM.write(ep++, 0B01011010);  // ChkA
+   EEPROM.write(ep++, 0B10100101);  // ChkB
+
+   EEPROM.write(ep++, nMO);  // x 3 Bytes
+   EEPROM.write(ep++, nPI);  // x 2 Bytes 
+   EEPROM.write(ep++, nPO);  // x 2 Bytes
+   EEPROM.write(ep++, nRL);  // x 3 Bytes
+   
+   for ( i = 0; i < nMO; i++ ) {         // Save modules defs
+      EEPROM.write(ep++, _MO[i].mtype );
+      tmp =  _MO[i].addr;    //_MO[i].mod->getAddr();
+      EEPROM.write(ep++, lowByte(tmp) );
+      EEPROM.write(ep++, highByte(tmp) );  
+      //EEPROM.write(ep++, mem.xMO[i].mPI );
+      //EEPROM.write(ep++, mem.xMO[i].mPO );
+   }
+   for ( i = 0; i < nPI; i++ ) {         // Save In Port defs
+      EEPROM.write(ep++, lowByte(_PI[i]) );  
+      EEPROM.write(ep++, highByte(_PI[i]) );
+   }
+
+   for ( i = 0; i < nPO; i++ ) {         // Save Out Port defs
+      EEPROM.write(ep++, lowByte(_PO[i]) );  
+      EEPROM.write(ep++, highByte(_PO[i]) );
+   }
+
+   for ( i = 0; i < nRL; i++ ) {         // Save Rules defs
+      EEPROM.write(ep++, _RL[i].rl );  
+      EEPROM.write(ep++, _RL[i].pin );
+      EEPROM.write(ep++, _RL[i].pout );
+   }
+                    
+   EEPROM.end();   
+   Beep();
+   Beep();
+  return (true);
+ };
+ return (false);
+};
+
+
+void MyPlc::loadEprom(){  // Update PLC indexes to 0
+
+   uint16_t ep = EEPROM_OFFSET+2;
+   idx_t i;
+   uint16_t tmp;
+   uint8_t tmpb;
+  
+   uint8_t _nMO = EEPROM.read(ep++);  //  x 3 Bytes
+   uint8_t _nPI = EEPROM.read(ep++);  //  x 2 Bytes 
+   uint8_t _nPO = EEPROM.read(ep++);  //  x 2 Bytes
+   uint8_t _nRL = EEPROM.read(ep++);  //  x 3 Bytes
+
+   _MO = new mnode_t[_nMO];
+   _PI = new port_t[_nPI];
+   _PO = new port_t[_nPO];
+   _RL = new rule_t[_nRL];
+   
+       
+   for ( i = 0; i < _nMO; i++ ) {         // Map hardware module
+      tmpb = EEPROM.read(ep++);   // mtype
+       tmp = EEPROM.read(ep++);       // low address byte
+       tmp &= EEPROM.read(ep++) << 8; // high
+       
+        //_MO[i].mPI = EEPROM.read(ep++);   // Save first nodule's port idx TO OPTIMIZE !!!
+        //_MO[i].mPO = EEPROM.read(ep++);
+      addWiringModule((module_t)tmpb, tmp);        
+   }
+   
+   for ( i = 0; i < nPI; i++ ) {         // Map ports In
+      tmp = EEPROM.read(ep++);  
+      tmp &= EEPROM.read(ep++ ) << 8;   
+      addPort(In, _PMod(tmp) , _PFAdr(tmp) , _PTyp(tmp) );
+   }
+
+   for ( i = 0; i < nPO; i++ ) {         // Map ports Out
+      tmp = EEPROM.read(ep++);                  
+      tmp &= EEPROM.read(ep++ ) << 8;       
+      addPort(Out, _PMod(tmp) , _PFAdr(tmp) , _PTyp(tmp) );
+   }
+
+   for ( i = 0; i < nRL; i++ ) {         // Map rules
+      tmp = EEPROM.read(ep++);  
+      tmpb = EEPROM.read(ep++);
+      addRule(tmp,tmpb,EEPROM.read(ep++) );
+   }
+  
+};
+
+
+void MyPlc::loadDefault()  {
+
+       _MO = new mnode_t[1];
+       _PI = new port_t[2];
+       _PO = new port_t[2];
+       _RL = new rule_t[2];
+ 
+      idx_t m0 =  addWiringModule(_NBV30);      // Nanoboard v 3.0
+      //
+      idx_t p1  = addPort(In  ,m0, _P1);       // Nanoboard pin D8
+      idx_t p2  = addPort(In  ,m0, _P2);       // ...
+      idx_t p3  = addPort(Out ,m0, _P3); 
+      idx_t p4  = addPort(Out ,m0, _P4); 
+      addRule(p1,p3);            
+      addRule(p2,p4);            
+}
+
+
+void MyPlc::updateCycle(long period) {
+  rtime = (uint8_t) period;
+};
+
+
+
+// ---------------------------------------------------------------------------------------------
+//                                                                                  S E R I A L
+// ---------------------------------------------------------------------------------------------
+
+
+
+void MyPlc::sendINFO() 
+{
+  char   pktbuf[_VS_PKT_SIZE];       // char token buffer
+  vs_pkt_t *pbuf = (vs_pkt_t*) pktbuf;
+     pbuf->cmd = _INFO;         
+     pbuf->info.hardware = _MYPLC_HW;        // Board type
+     pbuf->info.firmware = _MYPLC_FW;        // Firmware version
+     
+     pbuf->info.serial = 0;
+     
+     pbuf->info.memory = 1024;                // Micro available memoryDevice 
+     pbuf->info.eprom = 0;
+     
+     pbuf->info.cycle  = rtime;               // Cycle time ms
+   
+     pbuf->info.modules= nMO;                 // Modules
+     pbuf->info.p_in   = nPI;                 // n Ports
+     pbuf->info.p_out  = nPO;                 // n Ports
+     pbuf->info.rules  = nRL;                 // Rules  
+     Serial.write(pktbuf, _VS_PKT_SIZE);
+     Serial.flush();
+}
 
 
 void MyPlc::sendWDatas() 
@@ -282,38 +445,6 @@ void MyPlc::sendWDatas()
 
 
 
-// ---------------------------------------------------------------------------------------------
-//                                                                                  S E R I A L
-// ---------------------------------------------------------------------------------------------
-
-
-
-void MyPlc::sendINFO() 
-{
-  char   pktbuf[_VS_PKT_SIZE];       // char token buffer
-  vs_pkt_t *pbuf = (vs_pkt_t*) pktbuf;
-     pbuf->cmd = _INFO;         
-     pbuf->info.hardware = _MYPLC_HW;        // Board type
-     pbuf->info.firmware = _MYPLC_FW;        // Firmware version
-     
-     pbuf->info.serial = 0;
-     
-     pbuf->info.memory = 1024;                // Micro available memoryDevice 
-     pbuf->info.eprom = 0;
-     
-     pbuf->info.cycle  = rtime;               // Cycle time ms
-   
-     pbuf->info.modules= nMO;                 // Modules
-     pbuf->info.p_in   = nPI;                 // n Ports
-     pbuf->info.p_out  = nPO;                 // n Ports
-     pbuf->info.rules  = nRL;                 // Rules  
-     Serial.write(pktbuf, _VS_PKT_SIZE);
-     Serial.flush();
-}
-
-
-
-
 
 void MyPlc::checkSerial()
 {
@@ -363,142 +494,6 @@ void MyPlc::checkSerial()
    };
 }
 
-
-bool MyPlc::saveToEprom(){  
-
- uint16_t ep = EEPROM_OFFSET;
- uint8_t i;
- uint16_t tmp;
-
-   // EEPROM.begin(EEPROM_SPACE);
-   // EEPROM.length()
- if (true ) {       // verify memory size
-   
-   EEPROM.write(ep++, 0B01011010);  // ChkA
-   EEPROM.write(ep++, 0B10100101);  // ChkB
-
-   EEPROM.write(ep++, nMO);  // x 3 Bytes
-   EEPROM.write(ep++, nPI);  // x 2 Bytes 
-   EEPROM.write(ep++, nPO);  // x 2 Bytes
-   EEPROM.write(ep++, nRL);  // x 3 Bytes
-   
-   for ( i = 0; i < nMO; i++ ) {         // Save modules defs
-      EEPROM.write(ep++, _MO[i].mtype );
-      tmp =  _MO[i].addr;    //_MO[i].mod->getAddr();
-      EEPROM.write(ep++, lowByte(tmp) );
-      EEPROM.write(ep++, highByte(tmp) );  
-      //EEPROM.write(ep++, mem.xMO[i].mPI );
-      //EEPROM.write(ep++, mem.xMO[i].mPO );
-   }
-   for ( i = 0; i < nPI; i++ ) {         // Save In Port defs
-      EEPROM.write(ep++, lowByte(_PI[i]) );  
-      EEPROM.write(ep++, highByte(_PI[i]) );
-   }
-
-   for ( i = 0; i < nPO; i++ ) {         // Save Out Port defs
-      EEPROM.write(ep++, lowByte(_PO[i]) );  
-      EEPROM.write(ep++, highByte(_PO[i]) );
-   }
-
-   for ( i = 0; i < nRL; i++ ) {         // Save Rules defs
-      EEPROM.write(ep++, _RL[i].rl );  
-      EEPROM.write(ep++, _RL[i].pin );
-      EEPROM.write(ep++, _RL[i].pout );
-   }
-                    
-   EEPROM.end();   
-   Beep();
-   Beep();
-  return (true);
- };
- return (false);
-};
-
-
-bool MyPlc::checkEprom(){  // Update PLC indexes to max
-  // Check first 2 bytes marker  
-  uint16_t ep = EEPROM_OFFSET;
-  uint8_t chkA = EEPROM.read(ep++);  //  x 3 Bytes
-  uint8_t chkB = EEPROM.read(ep++);  //  x 2 Bytes 
-  if ( ((chkA>>4)&&chkB) && ((chkB<<4)&&chkA  )) {  // Assume valid config in eeprom
-   return (true); // force update 
-  };
- return (false);
-};
-
-
-void MyPlc::loadEprom(){  // Update PLC indexes to 0
-
-   uint16_t ep = EEPROM_OFFSET+2;
-   idx_t i;
-   uint16_t tmp;
-   uint8_t tmpb;
-  
-   uint8_t _nMO = EEPROM.read(ep++);  //  x 3 Bytes
-   uint8_t _nPI = EEPROM.read(ep++);  //  x 2 Bytes 
-   uint8_t _nPO = EEPROM.read(ep++);  //  x 2 Bytes
-   uint8_t _nRL = EEPROM.read(ep++);  //  x 3 Bytes
-
-   _MO = new mnode_t[_nMO];
-   _PI = new port_t[_nPI];
-   _PO = new port_t[_nPO];
-   _RL = new rule_t[_nRL];
-   
-       
-   for ( i = 0; i < _nMO; i++ ) {         // Map hardware module
-      tmpb = EEPROM.read(ep++);   // mtype
-       tmp = EEPROM.read(ep++);       // low address byte
-       tmp &= EEPROM.read(ep++) << 8; // high
-       
-        //_MO[i].mPI = EEPROM.read(ep++);   // Save first nodule's port idx TO OPTIMIZE !!!
-        //_MO[i].mPO = EEPROM.read(ep++);
-      addWiringModule((module_t)tmpb, tmp);        
-   }
-   
-   for ( i = 0; i < nPI; i++ ) {         // Map ports In
-      tmp = EEPROM.read(ep++);  
-      tmp &= EEPROM.read(ep++ ) << 8;   
-      addPort(In, _PMod(tmp) , _PFAdr(tmp) , _PTyp(tmp) );
-   }
-
-   for ( i = 0; i < nPO; i++ ) {         // Map ports Out
-      tmp = EEPROM.read(ep++);                  
-      tmp &= EEPROM.read(ep++ ) << 8;       
-      addPort(Out, _PMod(tmp) , _PFAdr(tmp) , _PTyp(tmp) );
-   }
-
-   for ( i = 0; i < nRL; i++ ) {         // Map rules
-      tmp = EEPROM.read(ep++);  
-      tmpb = EEPROM.read(ep++);
-      addRule(tmp,tmpb,EEPROM.read(ep++) );
-   }
-  
-};
-
-
-
-void MyPlc::loadDefault()  {
-
-       _MO = new mnode_t[1];
-       _PI = new port_t[2];
-       _PO = new port_t[2];
-       _RL = new rule_t[2];
- 
-      idx_t m0 =  addWiringModule(_NBV30);      // Nanoboard v 3.0
-      //
-      idx_t p1  = addPort(In  ,m0, _P1);       // Nanoboard pin D8
-      idx_t p2  = addPort(In  ,m0, _P2);       // ...
-      idx_t p3  = addPort(Out ,m0, _P3); 
-      idx_t p4  = addPort(Out ,m0, _P4); 
-      addRule(p1,p3);            
-      addRule(p2,p4);            
-}
-
-
-
-void MyPlc::updateCycle(long period) {
-  rtime = (uint8_t) period;
-};
 
 
 

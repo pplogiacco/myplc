@@ -106,6 +106,7 @@ void setup() {
     lcd.setBacklight(LED_ON);
     #endif
 
+
     Serial.begin(57600,SERIAL_8N1);
     while ((!Serial.available()) && (--_cycle)) { delay(100); };  // wait for incoming byte:
      if (Serial.available() ) {
@@ -130,30 +131,26 @@ void setup() {
 
 void loop() {
                   
-    if ( _visio ) {              // _____Check serial requests
+    if ( _visio ) {                // _____Serial link
 
-     if ( _cycle ) {                // Compute Cycle Time
-      if (_cycle==1) {
-        myplc.updateCycle(millis() - _ltime);
-        myplc.sendINFO(); 
-      }
-       _ltime = millis();
-      _cycle--;            
-     } 
-     
-     myplc.checkSerial(); 
+      if ( _cycle ) {                // Compute Cycle Time
+       if (_cycle==1) {
+         myplc.updateCycle(millis() - _ltime);
+         myplc.sendINFO(); 
+       }
+        _ltime = millis();
+       _cycle--;            
+      } 
+      myplc.checkSerial(); 
                 
-    } else {                       // _____Perform control cycle
-      if (digitalRead(NB_SW1)) {                                        
+    } else {                       // _____Run 
+      
+      if (digitalRead(NB_SW1)) {   // SW2 Pin                                    
         if ( myplc.Read() )         // read in-ports / loconet bus
         if ( myplc.Evaluate() ){    // evaluate rules 
               myplc.Write();        // write out-pins and send loconet messages
-        } 
+        }   
       }
     }  
  
 } // loop
-
-
-
-
