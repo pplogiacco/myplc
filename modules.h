@@ -17,6 +17,8 @@
 // Loconet
 //
 //#define LN_TX_PIN   NB_LCNTX    // LN_RX_PIN Hardcoded in library for UNO and MEGA
+#define _LCNIF_CONTROLLER  0     //  "ON" Send OPC_SW_REQ otherwise only Receive OPC_* commands 
+
 #if (LOCONET_CONTROLLER)  
   #define LCN_MODE_CONTROLLER    //  Send  OPC_SW_REQ
 #endif
@@ -54,7 +56,7 @@ class ModuleNBV30: public Module_ {        // IO Module 16bit, based on Microchi
     uint16_t lpinval=0;     // module's last hardware state
     
   public:                                    
-    ModuleNBV30(idx_t nidx):Module_(nidx,0) {};   // Costructor        
+    ModuleNBV30(idx_t nidx, maddr_t maddr=0, flag_t mopts=0):Module_(nidx, maddr, mopts) {};   // Costructor        
     ~ModuleNBV30(){};
     uint8_t Initialize();
     port_t  mapPort(flag_t io, saddr_t subaddr, flag_t ptype=0 );
@@ -106,7 +108,7 @@ class ModuleSEM16: public Module_ {        // IO Module 16bit, based on Microchi
     
       
   public:
-    ModuleSEM16(idx_t nidx, maddr_t maddr):Module_(nidx, maddr)   // Costructor,  1..7 masked to bbaaaxxx  ( bb=00 SIP )
+    ModuleSEM16(idx_t nidx, maddr_t maddr, flag_t mopts=0):Module_(nidx, maddr, mopts)   // Costructor,  1..7 masked to bbaaaxxx  ( bb=00 SIP )
     {
       sem16 = new MCP23x17(Module_::addr, NB_CSPIN);     // Init SPI module 
     };   
@@ -127,7 +129,7 @@ class ModuleSEM16: public Module_ {        // IO Module 16bit, based on Microchi
 // -----------------------------------------------------------------
 //
 //
-//#define LN_TX_PIN   NB_LCNTX    // LN_RX_PIN Hardcoded in library for UNO and MEGA
+//#define LN_TX_PIN   NB_LCNTX         // LN_RX_PIN Hardcoded in library for UNO and MEGA
 //#define LCN_MODE_CONTROLLER   1      //  Send  OPC_SW_REQ
 //#define LCN_ADDR_OFFSET       000U   //  offset to +/- to loconet addresses
 //
@@ -169,7 +171,7 @@ class ModuleSEM16: public Module_ {        // IO Module 16bit, based on Microchi
 class ModuleLCN: public Module_ {        // Module IO16 implementation
 private:
 public: 
-   ModuleLCN(idx_t nidx, maddr_t maddr):Module_(nidx, maddr)  {};     // Class constructor
+   ModuleLCN(idx_t nidx, maddr_t maddr, flag_t mopts=0):Module_(nidx, maddr, mopts)  {};     // Class constructor
    ~ModuleLCN() {};
    
   uint8_t Initialize();

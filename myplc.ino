@@ -37,24 +37,26 @@
 ** OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE."
 */
 //
-// Last:
-// 07/03/20 - Serial Rewrite
-// 06/03/20 - Eprom save/load
-// 22/02/20 - Serial protocol & refactory
-// 10/02/20 - Serial port handshake 
-// 09/02/20 - Lcd addressing and test
-// 31/01/20 - Refactoring to unified port mask  
+// Ver.Rel changes 
+// ----------------------------------------------------------------------
+//  1.13 - 11/04/20 - Added module's options 1/2 
+//         07/03/20 - Serial Rewrite
+//         06/03/20 - Eprom save/load
+//         22/02/20 - Serial protocol & refactory
+//         10/02/20 - Serial port handshake 
+//         09/02/20 - Lcd addressing and test
+//         31/01/20 - Refactoring to unified port mask  
 // 
 //
 #include "myplc.h"
 #include "core.h"
-
-
+//
+//
 #undef _DEBUG_
 
 
 
-//  Buzzer
+//  Beep
 //
 void Beep() {
  digitalWrite(NB_BUZZER,1);
@@ -66,14 +68,14 @@ void Beep() {
 // Display  
 // 
 #ifdef _LCDOUT_
+
+#define _L1  1;             // Update Line 1
+#define _L2  2;
 #include <LCD.h>
 #include <LiquidCrystal_I2C.h> 
 /* #define BACKLIGHT_PIN   3  */
 LiquidCrystal_I2C lcd(LCD_ADDR,2,1,0,4,5,6,7);  // Pins: En Rw Rs D4 D5 D6 D7
 
-#define _L1  1;             // Update Line 1
-#define _L2  2;
-    
 void Show(const char* txt, uint8_t l=0) { // l=0 clear before print, 1..4 print on line...
   if(l) {   
     //lcd.gotoxy 
@@ -85,7 +87,6 @@ void Show(const char* txt, uint8_t l=0) { // l=0 clear before print, 1..4 print 
  lcd.print(txt); 
 }
 #endif
-
 
 
 MyPlc myplc;
@@ -112,7 +113,7 @@ void setup() {
      if (Serial.available() ) {
           char pktbuf = Serial.read();
           _visio = (pktbuf=='A')?On:Off;
-          _cycle = 5;  // n-times to compute cycle period 
+          _cycle = 2;  // n-times to compute cycle period 
      }
      
     if( ! _visio ) {
@@ -135,11 +136,12 @@ void loop() {
 
       if ( _cycle ) {                // Compute Cycle Time
        if (_cycle==1) {
-         myplc.updateCycle(millis() - _ltime);
-         myplc.sendINFO(); 
+         myplc.updateCycle(millis()-_ltime);
+         myplc.sendINFO();          
        }
         _ltime = millis();
-       _cycle--;            
+       _cycle--;  
+                 
       } 
       myplc.checkSerial(); 
                 

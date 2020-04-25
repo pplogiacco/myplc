@@ -146,11 +146,13 @@ typedef uint16_t port_t;  // 16bit Port
 #define _PsFAdr(p,a)  (p&0x003F)|(((a&0x0300)>>2)|(a<<8)) // Set 10 bit Address 
 //
 //
-typedef uint8_t   maddr_t;   // Module phisical address ( SPI, i2c, etc... )
+typedef uint16_t  maddr_t;   // Module phisical address ( SPI, i2c, Loconet... )
 typedef uint16_t  saddr_t;   // Port sub-address ( 10bit max, expander gate, pin, lcn-addr, etc.  )
 typedef uint8_t   flag_t;    // smaller data only one bit !
 typedef uint8_t   idx_t;     // Port/Module index in array
 //
+#define _MOpt1(o) ( o    & 0xF )
+#define _MOpt2(o) ( o>>4 & 0xF )
 //
 //
 typedef enum : uint8_t {          // Bus & Module:
@@ -158,15 +160,16 @@ typedef enum : uint8_t {          // Bus & Module:
                   _SEM16 = 0x02,     // SPI I/O Port Expander
                   _LCNIF = 0x03      // Loconet Interface
                        } module_t;
-    
-
+//
+//
 class Module_ {         // Abstract class 
   protected:
-         idx_t idx  = 0;       // (Module ID) position in _MO array
+         idx_t idx  = 0;      // (Module ID) position in _MO array
        maddr_t addr = 0;      // phisical addres
+        flag_t opts = 0;      // Options 4bits lsn/msn
      
   public:
-    Module_(idx_t nidx, maddr_t maddr):idx(nidx),addr(maddr) {};
+    Module_(idx_t nidx, maddr_t maddr, flag_t mopts):idx(nidx),addr(maddr),opts(mopts) {};
     ~Module_() {}; 
     
     virtual uint8_t Initialize() {};    // Return E00 = InitOK / E01 = InitERR
@@ -244,22 +247,25 @@ typedef struct {
 //
 typedef struct { 
                 Module_* mod;
-                maddr_t addr;      // phisical addres DUPLICATED IN MODULE CLASS
-                module_t mtype;    
+                 maddr_t maddr;      // phisical addres DUPLICATED IN MODULE CLASS
+                module_t mtype;
+                  flag_t mopts;   
                } mnode_t;
 //
 //
 class MyPlc {
   
  private:
-  mnode_t*  _MO;  
-  port_t*   _PI;
-  port_t*   _PO;
-  rule_t*   _RL;
-  idx_t     nMO,nPI,nPO,nRL;
+  mnode_t*  _MO;  // Modules  
+  port_t*   _PI;  // Input ports
+  port_t*   _PO;  // Output ports
+  rule_t*   _RL;  // Rules
+  idx_t     nMO,  // number of modules
+            nPI,  // number of inputs
+            nPO,  // number of outputs
+            nRL;  // number of rules
 
- 
-  
+
   uint8_t  rtime=0;   // 0=no changes, 1=in chaged, 2= evaluation chage out 
   
   bool checkEprom();
@@ -268,49 +274,25 @@ class MyPlc {
   void clearMemory();
   void initMemory(idx_t maxmod,idx_t maxin,idx_t maxout,idx_t maxrls);
    
-  
  public:
  
-  
-  MyPlc() { 
-    // CHECK FREE MEMORY 
-    /* int required = maxmod * sizeof(module_t) + (maxin+maxout)*sizeof(port_t) + maxrls * sizeof(rule_t);
-    int mem = malloc ( required );
-     if ((required >>= 1) < E02_MINFREE) {
-       if (mem) free (mem);
-       return (E02);
-     }    */ 
-   #ifdef DEBUG_FORCE_DEFAULT
-    loadDefault(); 
-   #else      
-    if ( checkEprom() ) {
-       loadEprom();
-    } else loadDefault();
-   #endif     
-  }
-  
-  ~MyPlc(void) 
-  { 
-    clearMemory();
-  }     
+  MyPlc();
+  ~MyPlc();
 
-
-
-
-
-  
   // Configution 
-  idx_t   addWiringModule(module_t mtype, maddr_t address=0);        // Map hardware module
+  idx_t   addWiringModule(module_t mtype, maddr_t maddr = 0, flag_t mopts = 0);        // Map hardware module
   idx_t   addPort(flag_t io, idx_t imodule, saddr_t subaddr, flag_t ptype=0 , flag_t dval=0);     
   uint8_t addRule(uint8_t cc, idx_t pin, uint8_t vin, idx_t pout, uint8_t vout);
   uint8_t addRule(uint8_t cc, idx_t pin, idx_t pout );
   uint8_t addRule(idx_t pin, idx_t pout )  { return addRule(_Cxx,pin,pout );  }; 
 
   // Serial and memory functions
-  void checkSerial();  
+  void checkSerial();
+  void sendINFO();  
   void sendWDatas();
-  void sendINFO();
+  void sendCOMPLETE();
   bool saveToEprom();
+  
   void updateCycle(long period);
 
   
@@ -328,7 +310,7 @@ class MyPlc {
 //                                                                 S E R I A L   P R O T O C O L
 // ---------------------------------------------------------------------------------------------
 //
-//#define _VS_PKT_DATA_SIZE   18   // Max packet's data size ( _INFO Max ) 
+//
 
 typedef uint16_t word_t;         // short unsigned int
 
@@ -340,6 +322,7 @@ typedef enum : word_t            // short unsigned int
         _MODULE   = 0x03,         // module datas ( used by _RETRIEVE / _UPDATE )    
         _PORT     = 0x04,         // port datas  
         _RULE     = 0x05,         // rule datas
+        _COMPLETE = 0x06          // Data exchange finished  
         } _vs_cmd_t;
 
 typedef struct {       // 20 Bytes
@@ -355,13 +338,17 @@ typedef struct {       // 20 Bytes
     word_t rules;      // Rules       
         } vs_info_t;    
 
-typedef struct {
+typedef struct {          // MODULE
     word_t idx;           // index
     word_t mtype;     
-    word_t addr;
+    word_t maddr;
+    word_t mopts;          // !!!! Splitted from mtype
+    // word_t fpi;         // !!!! First in PI[]
+    // word_t npi;         // !!!! N port in PI[]
+    // word_t fpo;         // !!!! First in PO[] 
         } vs_module_t;
 
-typedef struct {          // 7 Bytes
+typedef struct {          // PORT ( 7Bytes)
       word_t idx;         // index
       word_t imodule;    
       word_t subaddr;      
@@ -370,23 +357,30 @@ typedef struct {          // 7 Bytes
       word_t defval;      
         } vs_port_t;
 
-typedef struct {
-     word_t idx;    
-     word_t rl;         // rule condition coding
-     word_t pin;        // index innput port 
-     word_t pout;       // index output port 
+typedef struct {        // RULE
+     word_t idx;        // index
+     word_t rl;         // rule condition coding 
+     word_t ipev;        // index innput port 
+     word_t ipac;       // index output port
+                          // !!! 2 bit to set i/o for each one 
+     //word_t pin;        // !!! index innput port 
+     //word_t pout;       // !!! index output port 
                } vs_rule_t;
 
-typedef struct {
+
+typedef struct {        ///  !!!!!  USE INFO_____________________
      word_t mode;    
-     word_t nmo;         // rule condition coding
-     word_t npi;        // index innput port 
+     word_t nmo;       // rule condition coding
+     word_t npi;       // index innput port 
      word_t npo;       // index output port 
      word_t nrl;
                } vs_rewrite_t;
+#define _VS_REWRITE_BEGIN   1
+#define _VS_REWRITE_END     0
+
                
-typedef struct {
-  _vs_cmd_t cmd;                // 20 bytes
+typedef struct {                // PACKET ( MAX 22 Bytes ) 
+  _vs_cmd_t cmd;                // 
     union {
           vs_module_t module;   // 
             vs_port_t port;     // 
@@ -394,76 +388,12 @@ typedef struct {
             vs_info_t info;     // 20 bytes
          vs_rewrite_t rewrite;  // 
           };
-        } vs_pkt_t;
+               } vs_pkt_t;
         
 #define _VS_PKT_SIZE        22   // 20+2
-#define _VS_REWRITE_BEGIN   1
-#define _VS_REWRITE_END     0
+
 
 #endif // CORE_H
-
-
-
-/*
-typedef struct {
-  mnode_t*  xMO;  
-  idx_t     nMO=0;
-  port_t*   xPI;
-  idx_t     nPI=0;
-  port_t*   xPO;
-  idx_t     nPO=0;
-  rule_t*   xRL;
-  idx_t     nRL=0;
-} myplcmem_t;
-
-
-
-
-
-class Manager {
- private:
- public:
-
-  Manager(idx_t maxmod,idx_t maxin,idx_t maxout,idx_t maxrls): mem.nMO(maxmod),mem.nPI(maxin),mem.nPO(maxout),mem.nRL(maxrls) { 
-    // CHECK FREE MEMORY 
-    /* int required = maxmod * sizeof(module_t) + (maxin+maxout)*sizeof(port_t) + maxrls * sizeof(rule_t);
-    int mem = malloc ( required );
-     if ((required >>= 1) < E02_MINFREE) {
-       if (mem) free (mem);
-       return (E02);
-     }    
-    mem.MO = new mnode_t[mem.nMO];
-    mem.PI = new port_t[mem.nPI];
-    mem.PO = new port_t[mem.nPO];
-    mem.RL = new rule_t[mem.nRL];
-  }
-
-  ~Manager(void) {
-     delete[] _MO;
-     delete[] _PI;
-     delete[] _PO;
-     delete[] _RL;
-  }    
-  
-  idx_t   addWiringModule(module_t mtype, maddr_t address=0);        // Map hardware module
-  idx_t   addPort(flag_t io, idx_t imodule, saddr_t subaddr, flag_t ptype=0 );
-      
-  uint8_t addRule(uint8_t cc, idx_t pin, uint8_t vin, idx_t pout, uint8_t vout);
-  uint8_t addRule(uint8_t cc, idx_t pin, idx_t pout );
-  uint8_t addRule(idx_t pin, idx_t pout )  { return addRule(_Cxx,pin,pout );  }; 
-  
-  uint8_t LoadMem();        // Initialize all modules hardware & Bus, ret 0 se ok
-  uint8_t SaveMem();        // Initialize all modules hardware & Bus, ret 0 se ok
-}
-
-*/
-
-
-
-
-
-
-
 
 
 

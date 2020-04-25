@@ -8,42 +8,65 @@
 #include "modules.h"
 #include <EEPROM.h>
 
+ MyPlc::MyPlc() { 
+    // CHECK FREE MEMORY 
+    /* int required = maxmod * sizeof(module_t) + (maxin+maxout)*sizeof(port_t) + maxrls * sizeof(rule_t);
+    int mem = malloc ( required );
+     if ((required >>= 1) < E02_MINFREE) {
+       if (mem) free (mem);
+       return (E02);
+     }    */ 
+   #ifdef DEBUG_FORCE_DEFAULT
+    loadDefault(); 
+   #else      
+    if ( checkEprom() ) {
+       loadEprom();
+    } else loadDefault();
+   #endif     
+  }
+  
+MyPlc::~MyPlc() 
+  { 
+    clearMemory();
+  }     
 
-idx_t MyPlc::addWiringModule(module_t mtype, maddr_t address=0)      // Map hardware module
+
+idx_t MyPlc::addWiringModule(module_t mtype, maddr_t maddr, flag_t mopts)      // Map hardware module
   {
    #ifdef _SEROUT_    
    Serial.print(nMO);
-   #endif       
-
+   #endif
+          
+   _MO[nMO].mtype = mtype;  // TO be change _MO structure !! duplicated datas  !!!! 
+   _MO[nMO].maddr = maddr;
+   _MO[nMO].mopts = mopts;  
+   
    switch (mtype) {
       case _NBV30:
-           _MO[nMO].mod = new ModuleNBV30(nMO);      // Differetn types different implementations 
+           _MO[nMO].mod = new ModuleNBV30(nMO);      // Differetn types different implementations  
+           
               #ifdef _SEROUT_
-              Serial.println(" Nanoboard");
+              Serial.println("Nanoboard");
               #endif   
           break;   
           
-      case _SEM16: 
-           _MO[nMO].mod = new ModuleSEM16(nMO, address);    // Different type different implementations          
-           _MO[nMO].mtype = _SEM16;
-           _MO[nMO].addr = address;
-           
+      case _SEM16:
+           _MO[nMO].mod = new ModuleSEM16(nMO, maddr, mopts);         
+       
               #ifdef _SEROUT_
               Serial.print(" Sem16(");Serial.print(address);Serial.println(") ");
               #endif
           break;
           
       case _LCNIF:
-           _MO[nMO].mod = new ModuleLCN(nMO, address);      // Differetn types different implementations   
-           _MO[nMO].mtype = _LCNIF;
-           _MO[nMO].addr = address;                  
+           _MO[nMO].mod = new ModuleLCN(nMO, maddr, mopts);     
+     
+                       
               #ifdef _SEROUT_
               Serial.println(" Loconet ");
               #endif       
           break;           
    };  
-   _MO[nMO].addr;
-   _MO[nMO].mtype = mtype;
    nMO++;
    return (nMO-1);
   }; // addWiringModule...
@@ -257,7 +280,7 @@ bool MyPlc::saveToEprom(){
    
    for ( i = 0; i < nMO; i++ ) {         // Save modules defs
       EEPROM.write(ep++, _MO[i].mtype );
-      tmp =  _MO[i].addr;    //_MO[i].mod->getAddr();
+      tmp =  _MO[i].maddr;    //_MO[i].mod->getAddr();
       EEPROM.write(ep++, lowByte(tmp) );
       EEPROM.write(ep++, highByte(tmp) );  
       //EEPROM.write(ep++, mem.xMO[i].mPI );
@@ -356,7 +379,7 @@ void MyPlc::loadDefault()  {
 
 
 void MyPlc::updateCycle(long period) {
-  rtime = (uint8_t) period;
+  rtime = (uint8_t) period>>1; // half 
 };
 
 
@@ -366,17 +389,38 @@ void MyPlc::updateCycle(long period) {
 // ---------------------------------------------------------------------------------------------
 
 
-
-void MyPlc::sendINFO() 
+void MyPlc::sendINFO() // DEVICE
 {
   char   pktbuf[_VS_PKT_SIZE];       // char token buffer
   vs_pkt_t *pbuf = (vs_pkt_t*) pktbuf;
      pbuf->cmd = _INFO;         
-     pbuf->info.hardware = _MYPLC_HW;        // Board type
+     
+     pbuf->info.hardware = _DEV_HARDWARE;                      // Board type
+     pbuf->info.firmware = _VerByte(_DEV_FW_VER,_DEV_FW_REL);  // Firmware version
+     pbuf->info.serial = _DEV_SERIAL;                          // Unique board code
+     pbuf->info.memory = _DEV_MEMORY;                          // uC  SRAM & EEPROM 
+     pbuf->info.eprom =  _DEV_EEPROM;                       
+     pbuf->info.cycle  = rtime;                                // Cycle time ms/2
+     pbuf->info.modules= nMO;               // Modules
+     pbuf->info.p_in   = nPI;               // n Ports
+     pbuf->info.p_out  = nPO;               // n Ports
+     pbuf->info.rules  = nRL;               // Rules
+       
+     Serial.write(pktbuf, _VS_PKT_SIZE);
+     Serial.flush();
+}
+
+
+void MyPlc::sendCOMPLETE() // DEVICE
+{
+  char   pktbuf[_VS_PKT_SIZE];       // char token buffer
+  vs_pkt_t *pbuf = (vs_pkt_t*) pktbuf;
+     pbuf->cmd = _COMPLETE;         
+ /*    pbuf->info.hardware = _MYPLC_HW;        // Board type
      pbuf->info.firmware = _MYPLC_FW;        // Firmware version
-     
-     pbuf->info.serial = 0;
-     
+
+     pbuf->info.serial = 0; 
+
      pbuf->info.memory = 1024;                // Micro available memoryDevice 
      pbuf->info.eprom = 0;
      
@@ -385,10 +429,11 @@ void MyPlc::sendINFO()
      pbuf->info.modules= nMO;                 // Modules
      pbuf->info.p_in   = nPI;                 // n Ports
      pbuf->info.p_out  = nPO;                 // n Ports
-     pbuf->info.rules  = nRL;                 // Rules  
+     pbuf->info.rules  = nRL;                 // Rules  */
      Serial.write(pktbuf, _VS_PKT_SIZE);
      Serial.flush();
 }
+
 
 
 void MyPlc::sendWDatas() 
@@ -402,7 +447,8 @@ void MyPlc::sendWDatas()
    for (i = 0; i < nMO; i++ ) { // Send all modules datas... 
      pbuf->module.idx =  i;
      pbuf->module.mtype = _MO[i].mtype;
-     pbuf->module.addr =  _MO[i].addr;
+     pbuf->module.maddr = _MO[i].maddr;
+     pbuf->module.mopts = _MO[i].mopts;
      
      Serial.write(pktbuf, _VS_PKT_SIZE);
      Serial.flush();
@@ -436,13 +482,13 @@ void MyPlc::sendWDatas()
    for ( i = 0; i < nRL; i++ ) { // Send all In Ports datas... 
      pbuf->rule.idx  =  i;   
      pbuf->rule.rl   = _RL[i].rl;
-     pbuf->rule.pin  = _RL[i].pin;
-     pbuf->rule.pout = _RL[i].pout;
+     pbuf->rule.ipev = _RL[i].pin;    // index In port ( Evaluation Port )
+     pbuf->rule.ipac = _RL[i].pout;   // index Out port ( Action Port )
+     
      Serial.write(pktbuf, _VS_PKT_SIZE);
      Serial.flush();
    }
-}
-
+}        
 
 
 
@@ -469,7 +515,8 @@ void MyPlc::checkSerial()
                 break;    
         
              case _RETRIEVE:        // uC -> PC
-                  sendWDatas();   
+                  sendWDatas();
+                  sendCOMPLETE();                    
                 break;               
                 
              case _INFO:            // Get uC details
@@ -477,7 +524,7 @@ void MyPlc::checkSerial()
                 break;              
                   
              case _MODULE:          // Trasfer module
-                  addWiringModule((module_t)pbuf->module.mtype, pbuf->module.addr);   
+                  addWiringModule((module_t)pbuf->module.mtype, pbuf->module.maddr, pbuf->module.mopts);   
                 break;                     
                 
              case _PORT:            // Trasfer port     
@@ -485,7 +532,7 @@ void MyPlc::checkSerial()
                 break;   
                 
              case _RULE:           // Trasfer rule     
-                  addRule(pbuf->rule.rl,pbuf->rule.pin,pbuf->rule.pout );                
+                  addRule(pbuf->rule.rl,pbuf->rule.ipev,pbuf->rule.ipac );                
                 break;           
            }; // switch 
    

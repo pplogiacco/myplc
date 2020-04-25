@@ -413,8 +413,8 @@ uint8_t ModuleLCN::writePorts(port_t* _po, idx_t _n)   // update changed output
         
        if ( ( _PMod(_po[i]) == Module_::idx ) && _PChg(_po[i]) ) {   // port has new value
 
-        #ifdef LCN_MODE_CONTROLLER
-        
+        if ( _MOpt1(Module_::opts) )  /// LCN_MODE_CONTROLLER
+           {
               // Send OPC_SW_REQ ( 0xB0 ) - Request Switch function ( ln_opc.h: swreq_t ) 
             
               SendPacket.data[ 0 ] = OPC_SW_REQ ;                       // Set OPC
@@ -436,7 +436,7 @@ uint8_t ModuleLCN::writePorts(port_t* _po, idx_t _n)   // update changed output
               SendPacket.data[ 2 ] &= B11101111;   // Off
               LocoNet.send( &SendPacket );
               
-        #else
+           } else {
 
               // Send OPC_INPUT_REP ( 0xB2 ) - General SENSOR Input codes ( ln_opc.h: inputRepMsg / ir )
             
@@ -459,7 +459,7 @@ uint8_t ModuleLCN::writePorts(port_t* _po, idx_t _n)   // update changed output
 
               LocoNet.send( &SendPacket ); 
         
-        #endif
+           } // end CTRL
 
         _po[i] =  _PsChg(_po[i],Not); // set no changed !!!!
         c++;
@@ -471,7 +471,3 @@ uint8_t ModuleLCN::writePorts(port_t* _po, idx_t _n)   // update changed output
      
     return (c);  
   };
-
-
-
-
